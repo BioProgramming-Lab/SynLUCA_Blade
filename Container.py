@@ -3,7 +3,8 @@
 # The unit of length is in nm, and the unit of time is in seconds.
 
 import numpy as np
-import math
+from shapely.geometry import Polygon
+
 
 class Container:
 
@@ -20,10 +21,22 @@ class Container:
             for line in f:
                 self.shape.append(float(line))
 
+    def establish(self, Voronoi_iterations: int = 100, animation_dir: str = None):
+        print("Initializing mesh")
+        # Initialize the container by generating border nodes and inner nodes
+        self.init_border_nodes()
+        self.init_inner_nodes()
+
+        # Relax inner nodes to make them evenly distributed
+        self.relax_inner_nodes(Voronoi_iterations=Voronoi_iterations, animation_dir=animation_dir)
+
+        # Triangulate the container
+        self.triangulate()
+        print("Mesh initialization complete\n", flush=True)
+
     # generate critical nodes on the border of the container
     def init_border_nodes(self):
-        self.resolution /= 2
-
+        print("\t--Initializing border nodes", flush=True)
         border_length = [self.shape[0]]
         for i in range(len(self.shape) - 1):
             border_length.append(np.sqrt((self.shape[i + 1] - self.shape[i]) **2 + 1))
@@ -71,16 +84,17 @@ class Container:
             self.border_nodes.append([x, r])
     
         self.border_nodes = np.array(self.border_nodes)
-        self.resolution *=2
+        self.shape_polygon = Polygon([(x, r) for x, r in self.border_nodes])
 
     # generate inner nodes of the container using halton sequence
     def init_inner_nodes(self):
+        print("\t--Initializing inner nodes", flush=True)
         self.inner_nodes = []
         max_height = [node[1] for node in self.roof_nodes]
-        num_inner_nodes = int(np.ceil(sum(self.shape) / self.resolution**2))
+        num_inner_nodes = int(np.ceil((sum(self.shape)-(self.shape[0]+self.shape[-1])/2) / self.resolution**2))
         single_section_length = sum(max_height) / (num_inner_nodes + len(max_height))
         for node in self.roof_nodes:
-            num_nodes_in_column = int(np.ceil(node[1] / single_section_length)) + 1
+            num_nodes_in_column = int(np.ceil(node[1] / single_section_length))
             section_length_in_column = node[1] / num_nodes_in_column
             for i in range(num_nodes_in_column-1):
                 r = section_length_in_column * (i + 1)
@@ -88,14 +102,11 @@ class Container:
         self.inner_nodes = np.array(self.inner_nodes)
 
     # make inner nodes evenly distributed in the container
-    def relax_inner_nodes(self, Voronoi_resolution: float = 10, animation_dir: str = None):
+    def relax_inner_nodes(self, Voronoi_iterations: int = 100, animation_dir: str = None):
+        print("\t--Relaxing inner nodes", end=' ', flush=True)
         # Relax inner nodes to make them evenly distributed
         from scipy.spatial import Voronoi, voronoi_plot_2d
-        import matplotlib.pyplot as plt
         import copy
-        from shapely.geometry import Polygon
-
-        shape_polygon = Polygon([(x, r) for x, r in self.border_nodes])
 
         max_x = max(self.border_nodes[:, 0]) + 10
         max_r = max(self.border_nodes[:, 1]) + 10
@@ -109,7 +120,7 @@ class Container:
             far_away_nodes.append([x, r])
 
         data_frames = []
-        for i in range(100):
+        for i in range(Voronoi_iterations):
             # Create Voronoi diagram using both inner nodes and far away nodes
             vor = Voronoi(np.vstack((self.inner_nodes, far_away_nodes)))
 
@@ -118,8 +129,8 @@ class Container:
             for region in vor.regions:
                 if not -1 in region:  # ignore empty regions
                     polygon = Polygon([vor.vertices[i] for i in region])
-                    if polygon.intersects(shape_polygon):
-                        vor_polygons.append(polygon.intersection(shape_polygon))
+                    if polygon.intersects(self.shape_polygon):
+                        vor_polygons.append(polygon.intersection(self.shape_polygon))
 
             # update inner nodes to the centroids of the Voronoi regions
             self.inner_nodes = []
@@ -131,13 +142,18 @@ class Container:
             # Gather frame for animation
             if animation_dir is not None:
                 data_frames.append((copy.deepcopy(vor), copy.deepcopy(vor_polygons)))
+            
+            if i % (Voronoi_iterations // 10) == 0 or i == Voronoi_iterations - 1:
+                print(".", end='', flush=True)
 
         if animation_dir is not None:
+            print("\n\t\t--Saving animation", flush=True, end='')
             from matplotlib import animation
+            import matplotlib.pyplot as plt
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            def update(frame):
-                vor, vor_polygons = frame
+            def update(frame_data):
+                frame_num, (vor, vor_polygons) = frame_data
                 ax.clear()
                 for poly in vor_polygons:
                     x, y = poly.exterior.xy
@@ -145,28 +161,38 @@ class Container:
                 voronoi_plot_2d(vor, ax=ax)
                 ax.set_xlim(min_x, max_x)
                 ax.set_ylim(min_r, max_r)
+                ax.set_title(f"Voronoi Iteration {frame_num}")
+                ax.set_xlabel('x (nm)')
+                ax.set_ylabel('r (nm)')
                 ax.set_aspect('equal', adjustable='box')
                 return ax,
 
-            ani = animation.FuncAnimation(fig, update, frames=data_frames, repeat=False)
+            ani = animation.FuncAnimation(fig, update, frames=enumerate(data_frames), repeat=False, cache_frame_data=False)
             ani.save(f"{animation_dir}/relaxation.mp4", fps=24, writer='ffmpeg')
             plt.close(fig)
+        
+        print("")
 
     # Triangulation
     def triangulate(self):
+        print("\t--Triangulating the container", flush=True)
         from scipy.spatial import Delaunay
         points = np.vstack((self.border_nodes, self.inner_nodes))
         tri = Delaunay(points[:, :2])
-        return tri
+
+        # get rid of the triangles that are outside the container shape
+        valid_simplices = []
+        for simplex in tri.simplices:
+            if self.shape_polygon.contains(Polygon(tri.points[simplex]).centroid):
+                valid_simplices.append(simplex)
+        tri.simplices = np.array(valid_simplices)
+        self.triangulation = tri
 
 if __name__ == "__main__":
     container = Container('shape.txt', resolution=200)
-    container.init_border_nodes()
-    container.init_inner_nodes()
-    container.relax_inner_nodes(animation_dir='.')
-    #print("border nodes:", container.border_nodes)
+    container.establish(animation_dir='.')
+
     print("Number of border nodes:", len(container.border_nodes))
-    #print("Inner nodes:", container.inner_nodes)
     print("Number of inner nodes:", len(container.inner_nodes))
 
     import matplotlib.pyplot as plt
@@ -177,8 +203,7 @@ if __name__ == "__main__":
     plt.scatter([node[0] for node in container.inner_nodes], [node[1] for node in container.inner_nodes], marker='x', color='red', label='Inner Nodes')
 
     # plot triangulation
-    tri = container.triangulate()
-    plt.triplot(tri.points[:, 0], tri.points[:, 1], tri.simplices.copy(), color='orange', alpha=0.5)
+    plt.triplot(container.triangulation.points[:, 0], container.triangulation.points[:, 1], container.triangulation.simplices.copy(), color='orange', alpha=0.5)
 
     plt.title('Container Shape and border Nodes')
     plt.xlabel('x (nm)')
