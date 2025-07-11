@@ -34,6 +34,17 @@ class Container:
         self.triangulate()
         print("Mesh initialization complete\n", flush=True)
 
+    class TriMesh:
+        def __init__(self, vertices, simplices, tri_neighbors, borders, bor_neighbors, adjacent_tri):
+            self.vertices = vertices    # coordinates of the vertices of the triangulation
+            self.simplices = simplices  # indices of the vertices that form each triangle
+            self.tri_neighbors = tri_neighbors  # indices of neighboring triangles for each triangle
+            self.borders = borders  # indices of the vertices that form the border edges of the container
+            self.bor_neighbors = bor_neighbors  # indices of neighboring border edges for each triangle
+            self.adjacent_tri = adjacent_tri  # indices of adjacent triangles for each border edge
+            self.tri_centroids = None  # centroids of each triangle, to be calculated later
+            self.bor_centroids = None  # centroids of each border edge, to be calculated later
+
     # generate critical nodes on the border of the container
     def init_border_nodes(self):
         print("\t--Initializing border nodes", flush=True)
@@ -74,6 +85,9 @@ class Container:
         else:
             # if the last node is not at the end of the container, add a node at the end
             self.border_nodes.append([len(self.shape) - 1, 0])
+
+        # True border nodes are the nodes of indeices ranging from 1 to self.border_number. These True border nodes are used to define the border edges of the container.
+        self.border_number = len(self.border_nodes) - 2
 
         # add r=0 nodes list
         num_of_r0_nodes = int((np.ceil(len(self.shape)-1) / self.resolution))
@@ -127,10 +141,13 @@ class Container:
             # clip Voronoi regions to the shape of the container
             vor_polygons = []
             for region in vor.regions:
-                if not -1 in region:  # ignore empty regions
+                if not -1 in region and len(region) > 0:  # ignore empty regions
                     polygon = Polygon([vor.vertices[i] for i in region])
                     if polygon.intersects(self.shape_polygon):
                         vor_polygons.append(polygon.intersection(self.shape_polygon))
+                    else:
+                        print(f"Invalid polygon found in Voronoi region {region}, skipping it.")
+                        print(f"Vertices: {[vor.vertices[i] for i in region]}")
 
             # update inner nodes to the centroids of the Voronoi regions
             self.inner_nodes = []
@@ -175,22 +192,77 @@ class Container:
 
     # Triangulation
     def triangulate(self):
+
         print("\t--Triangulating the container", flush=True)
         from scipy.spatial import Delaunay
         points = np.vstack((self.border_nodes, self.inner_nodes))
         tri = Delaunay(points[:, :2])
-
+        
         # get rid of the triangles that are outside the container shape
+        valid_simplices_index_mapping = np.full(len(tri.simplices), -1, dtype=int)
         valid_simplices = []
-        for simplex in tri.simplices:
+        for i, simplex in enumerate(tri.simplices):
             if self.shape_polygon.contains(Polygon(tri.points[simplex]).centroid):
+                valid_simplices_index_mapping[i] = len(valid_simplices)
                 valid_simplices.append(simplex)
         tri.simplices = np.array(valid_simplices)
-        self.triangulation = tri
+        # update neighbors to match the valid simplices
+        valid_neighbors = []
+        for i, neighbors in enumerate(tri.neighbors):
+            if valid_simplices_index_mapping[i] != -1:
+                valid_neighbors.append([valid_simplices_index_mapping[n] for n in neighbors if valid_simplices_index_mapping[n] != -1])
+        tri.neighbors = valid_neighbors
+
+        # determine border edges
+        border_edges = []
+        for i in range(self.border_number+1):
+            border_edges.append([i, i + 1])  # edges between border nodes
+        border_edges = np.array(border_edges)
+
+        # determine border neighbors
+        bor_neighbors = []
+        adjacent_tri = np.full(len(border_edges), -1, dtype=int)
+        for simplex in tri.simplices:
+            bor_neighbors.append([])
+            for point_index in simplex:
+                if point_index <= self.border_number:
+                    if (point_index+1 in simplex):
+                        bor_neighbors[-1].append(point_index)
+                        adjacent_tri[point_index] = len(bor_neighbors) - 1
+                        break
+                    elif (point_index-1 in simplex):
+                        bor_neighbors[-1].append(point_index-1)
+                        adjacent_tri[point_index-1] = len(bor_neighbors) - 1
+                        break
+        
+        # Create the TriMesh object to store the triangulation data
+        self.trimesh = self.TriMesh(
+            vertices=tri.points,
+            simplices=tri.simplices,
+            tri_neighbors=tri.neighbors,
+            borders= border_edges,
+            bor_neighbors=bor_neighbors,
+            adjacent_tri=adjacent_tri
+        )
+
+        # Check if the vertices of the triangulation match the original points
+        for i in range(len(self.trimesh.vertices)):
+            if (self.trimesh.vertices[i] != points[i]).any():
+                # raise error
+                raise ValueError(f"Vertex {i} has been modified from {points[i]} to {self.trimesh.vertices[i]} during triangulation.")
+
+    # Calculate centroids of each triangle and border edge
+    def calculate_centroids(self):
+        self.trimesh.tri_centroids = np.array([
+            np.mean(self.trimesh.vertices[simplex], axis=0) for simplex in self.trimesh.simplices
+        ])
+        self.trimesh.bor_centroids = np.array([
+            np.mean(self.trimesh.vertices[edge], axis=0) for edge in self.trimesh.borders
+        ])
 
 if __name__ == "__main__":
-    container = Container('shape.txt', resolution=200)
-    container.establish(animation_dir='.')
+    container = Container('shape.txt', resolution=300)
+    container.establish(animation_dir=None)
 
     print("Number of border nodes:", len(container.border_nodes))
     print("Number of inner nodes:", len(container.inner_nodes))
@@ -203,12 +275,34 @@ if __name__ == "__main__":
     plt.scatter([node[0] for node in container.inner_nodes], [node[1] for node in container.inner_nodes], marker='x', color='red', label='Inner Nodes')
 
     # plot triangulation
-    plt.triplot(container.triangulation.points[:, 0], container.triangulation.points[:, 1], container.triangulation.simplices.copy(), color='orange', alpha=0.5)
+    plt.triplot(container.trimesh.vertices[:, 0], container.trimesh.vertices[:, 1], container.trimesh.simplices.copy(), color='orange', alpha=0.5)
+    # put simplices indexs on the center of each triangle on the plot
+    for i, simplex in enumerate(container.trimesh.simplices):
+        centroid = np.mean(container.trimesh.vertices[simplex], axis=0)
+        plt.text(centroid[0], centroid[1], str(i), fontsize=8, ha='center', va='center', color='black')
+    # print (container.trimesh.neighbors[137])
+
+    # plot border edges
+    for edge in container.trimesh.borders:
+        x = [container.trimesh.vertices[edge[0]][0], container.trimesh.vertices[edge[1]][0]]
+        r = [container.trimesh.vertices[edge[0]][1], container.trimesh.vertices[edge[1]][1]]
+        plt.plot(x, r, color='red', linewidth=2)
+    
+    # plot triangular meshes that have border neighbors
+    for i, bor_neighbors in enumerate(container.trimesh.bor_neighbors):
+        if len(bor_neighbors) == 1:
+            plt.fill(
+                [container.trimesh.vertices[container.trimesh.simplices[i][0]][0],
+                 container.trimesh.vertices[container.trimesh.simplices[i][1]][0],
+                 container.trimesh.vertices[container.trimesh.simplices[i][2]][0]],
+                [container.trimesh.vertices[container.trimesh.simplices[i][0]][1],
+                 container.trimesh.vertices[container.trimesh.simplices[i][1]][1],
+                 container.trimesh.vertices[container.trimesh.simplices[i][2]][1]],
+                color='yellow', alpha=0.3
+            )
 
     plt.title('Container Shape and border Nodes')
     plt.xlabel('x (nm)')
     plt.ylabel('r (nm)')
     plt.gca().set_aspect('equal', adjustable='box')
     plt.show()
-
-            
