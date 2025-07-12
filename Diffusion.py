@@ -4,13 +4,15 @@
 
 from Container import Container
 
-# Calculate the diffusion properties $D$, which determines the diffusion flux $J$ as $J=-D*\Delta C$
+# Calculate the diffusion factor $Df$, which determines the diffusion flux $I$ as $I=-Df*\Delta C$
 def DiffusionProperties(trimesh: Container.TriMesh):
 
     # Calculate the centroids of each triangle and border edge, which will then be used to calculate delta distances
     trimesh.calculate_centroids()
 
-    border_diffusion = []
+    # Calculate the diffusion factors for each border edge and mesh
     mesh_diffusion = []
+
+    border_diffusion = []
 
     return border_diffusion, mesh_diffusion
