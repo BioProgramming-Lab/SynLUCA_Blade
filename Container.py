@@ -35,15 +35,39 @@ class Container:
         print("Mesh initialization complete\n", flush=True)
 
     class TriMesh:
-        def __init__(self, vertices, simplices, tri_neighbors, borders, bor_neighbors, adjacent_tri):
+        def __init__(self, vertices, simplices, tri_neighbors, borders, bor_neighbors, adjacent_tri, tri_neighbors_raw):
             self.vertices = vertices    # coordinates of the vertices of the triangulation
             self.simplices = simplices  # indices of the vertices that form each triangle
             self.tri_neighbors = tri_neighbors  # indices of neighboring triangles for each triangle
             self.borders = borders  # indices of the vertices that form the border edges of the container
             self.bor_neighbors = bor_neighbors  # indices of neighboring border edges for each triangle
             self.adjacent_tri = adjacent_tri  # indices of adjacent triangles for each border edge
+            self.tri_neighbors_raw = tri_neighbors_raw # indices of neighboring triangles for each triangle, including -1 indicating no neighbor on that side. The kth neighbor is opposite to the kth vertex.
             self.tri_centroids = None  # centroids of each triangle, to be calculated later
             self.bor_centroids = None  # centroids of each border edge, to be calculated later
+        
+        # Calculate centroids of each triangle and border edge
+        def calculate_centroids(self):
+            self.tri_centroids = np.array([
+                np.mean(self.vertices[simplex], axis=0) for simplex in self.simplices
+            ])
+            self.bor_centroids = np.array([
+                np.mean(self.vertices[edge], axis=0) for edge in self.borders
+            ])
+            
+        # Calculate the area of each triangle
+        def calculate_tri_areas(self):
+            areas = []
+            for simplex in self.simplices:
+                v0, v1, v2 = self.vertices[simplex]
+                area = 0.5 * np.abs((v1[0] - v0[0]) * (v2[1] - v0[1]) - (v2[0] - v0[0]) * (v1[1] - v0[1]))
+                areas.append(area)
+            return np.array(areas)
+        
+        # Calculate the volume of each triangle mesh
+        def calculate_tri_volumes(self):
+            # the volume is equivalent to the area times the distance that the centroid travels
+            return self.calculate_tri_areas() * self.tri_centroids[:, 1]
 
     # generate critical nodes on the border of the container
     def init_border_nodes(self):
@@ -208,9 +232,11 @@ class Container:
         tri.simplices = np.array(valid_simplices)
         # update neighbors to match the valid simplices
         valid_neighbors = []
+        valid_neighbors_raw = []
         for i, neighbors in enumerate(tri.neighbors):
             if valid_simplices_index_mapping[i] != -1:
                 valid_neighbors.append([valid_simplices_index_mapping[n] for n in neighbors if valid_simplices_index_mapping[n] != -1])
+                valid_neighbors_raw.append([valid_simplices_index_mapping[n] for n in neighbors])
         tri.neighbors = valid_neighbors
 
         # determine border edges
@@ -242,7 +268,8 @@ class Container:
             tri_neighbors=tri.neighbors,
             borders= border_edges,
             bor_neighbors=bor_neighbors,
-            adjacent_tri=adjacent_tri
+            adjacent_tri=adjacent_tri,
+            tri_neighbors_raw=valid_neighbors_raw
         )
 
         # Check if the vertices of the triangulation match the original points
@@ -250,15 +277,6 @@ class Container:
             if (self.trimesh.vertices[i] != points[i]).any():
                 # raise error
                 raise ValueError(f"Vertex {i} has been modified from {points[i]} to {self.trimesh.vertices[i]} during triangulation.")
-
-    # Calculate centroids of each triangle and border edge
-    def calculate_centroids(self):
-        self.trimesh.tri_centroids = np.array([
-            np.mean(self.trimesh.vertices[simplex], axis=0) for simplex in self.trimesh.simplices
-        ])
-        self.trimesh.bor_centroids = np.array([
-            np.mean(self.trimesh.vertices[edge], axis=0) for edge in self.trimesh.borders
-        ])
 
 if __name__ == "__main__":
     container = Container('shape.txt', resolution=300)
