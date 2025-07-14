@@ -221,21 +221,26 @@ class Container:
         from scipy.spatial import Delaunay
         points = np.vstack((self.border_nodes, self.inner_nodes))
         tri = Delaunay(points[:, :2])
+        # print("Delaunay triangulation complete, simplices found:", tri.neighbors, "\n", flush=True)
         
         # get rid of the triangles that are outside the container shape
-        valid_simplices_index_mapping = np.full(len(tri.simplices), -1, dtype=int)
+        valid_simplices_index_mapping = np.full(len(tri.simplices)+1, -1, dtype=int)
         valid_simplices = []
         for i, simplex in enumerate(tri.simplices):
             if self.shape_polygon.contains(Polygon(tri.points[simplex]).centroid):
                 valid_simplices_index_mapping[i] = len(valid_simplices)
                 valid_simplices.append(simplex)
+            else:
+                valid_simplices_index_mapping[i] = -1
+        valid_simplices_index_mapping[-1] = -1  # we need to have a -1 at the end to match that -1 indicates no neighbor
+
         tri.simplices = np.array(valid_simplices)
         # update neighbors to match the valid simplices
         valid_neighbors = []
         valid_neighbors_raw = []
         for i, neighbors in enumerate(tri.neighbors):
             if valid_simplices_index_mapping[i] != -1:
-                valid_neighbors.append([valid_simplices_index_mapping[n] for n in neighbors if valid_simplices_index_mapping[n] != -1])
+                valid_neighbors.append([valid_simplices_index_mapping[n] for n in neighbors if (valid_simplices_index_mapping[n] != -1)])
                 valid_neighbors_raw.append([valid_simplices_index_mapping[n] for n in neighbors])
         tri.neighbors = valid_neighbors
 
@@ -279,7 +284,7 @@ class Container:
                 raise ValueError(f"Vertex {i} has been modified from {points[i]} to {self.trimesh.vertices[i]} during triangulation.")
 
 if __name__ == "__main__":
-    container = Container('shape.txt', resolution=300)
+    container = Container('shape.txt', resolution=100)
     container.establish(animation_dir=None)
 
     print("Number of border nodes:", len(container.border_nodes))
@@ -298,7 +303,7 @@ if __name__ == "__main__":
     for i, simplex in enumerate(container.trimesh.simplices):
         centroid = np.mean(container.trimesh.vertices[simplex], axis=0)
         plt.text(centroid[0], centroid[1], str(i), fontsize=8, ha='center', va='center', color='black')
-    # print (container.trimesh.neighbors[137])
+    print (container.trimesh.tri_neighbors[418])
 
     # plot border edges
     for edge in container.trimesh.borders:

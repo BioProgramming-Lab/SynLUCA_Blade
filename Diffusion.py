@@ -5,8 +5,10 @@
 from Container import Container
 import numpy as np
 
-DiffConst_3D = 1e-9  # Diffusion constant, in m^2/s
-DiffConst_2D = 1e-12  # Diffusion constant, in m^2/s
+DiffConst_3D = 1e7  # Diffusion constant, in nm^2/s
+DiffConst_2D = 13e3  # Diffusion constant, in nm^2/s
+
+
 neighbor2edge = [[1, 2], [0, 2], [0, 1]]  # vertex indices of the edge connecting the neighboring triangle
 
 # Calculate the surface area of the lateral surface of a section of frustum given by two points
@@ -40,7 +42,7 @@ def DiffusionProperties(trimesh: Container.TriMesh):
                     trimesh.vertices[trimesh.simplices[receptor][neighbor2edge[donor][1]]]
                 )
                 inter_surface_areas[receptor].append(area)
-    print("Interacting surface areas calculated for each mesh:", inter_surface_areas)
+    print("Interacting surface areas calculated for each mesh:", inter_surface_areas[418])
     
     # Calculate the diffusion factors for each mesh
     mesh_diffusion = []
@@ -64,18 +66,31 @@ def DiffusionProperties(trimesh: Container.TriMesh):
     border_diffusion.append(
         [DiffConst_2D * trimesh.vertices[trimesh.borders[-1][0]][1] / SurfaceArea(trimesh.vertices[trimesh.borders[-1][0]], trimesh.vertices[trimesh.borders[-1][1]]) / np.linalg.norm(trimesh.bor_centroids[-2] - trimesh.bor_centroids[-1])]
     )
-    
-    return mesh_diffusion, border_diffusion
 
-
-
+    # Calculate the concentration transfer coefficient for each mesh that is connected to the border
+    # This coefficient $k$ = Volume / Surface Area
+    to_membrane = []
+    for membrane_section in range(len(trimesh.adjacent_tri)):
+        to_membrane.append(
+            tri_volumes[trimesh.adjacent_tri[membrane_section]] / SurfaceArea(
+                trimesh.vertices[trimesh.borders[membrane_section][0]],
+                trimesh.vertices[trimesh.borders[membrane_section][1]]
+            )
+        )
+    return mesh_diffusion, border_diffusion, to_membrane
 
 if __name__ == "__main__":
     # Example usage
-    container = Container('shape.txt', resolution=300)
+    container = Container('shape.txt', resolution=100)
     container.establish(animation_dir=None)
-    
-    tri, bor = DiffusionProperties(container.trimesh)
-    
-    print("Mesh Diffusion Properties:", tri)
-    print("Border Diffusion Properties:", bor)
+
+    tri, bor, to_mem = DiffusionProperties(container.trimesh)
+
+    print("simplices:", container.trimesh.simplices[418], "\n")
+    # print("borders:", container.trimesh.borders, "\n")
+    print("neighbors:", container.trimesh.tri_neighbors[418], "\n")
+    # print("adjacent:", container.trimesh.adjacent_tri, "\n")
+
+    print("Mesh Diffusion Properties:", tri[418], "\n")
+    # print("Border Diffusion Properties:", bor, "\n")
+    # print("To Membrane Properties:", to_mem, "\n")
