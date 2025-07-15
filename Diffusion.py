@@ -5,8 +5,8 @@
 from Container import Container
 import numpy as np
 
-DiffConst_3D = 1e7  # Diffusion constant, in nm^2/s
-DiffConst_2D = 13e3  # Diffusion constant, in nm^2/s
+DiffConst_3D = 10 * 1e6  # Diffusion constant, in nm^2/s
+DiffConst_2D = 13 * 1e4  # Diffusion constant, in nm^2/s
 
 
 neighbor2edge = [[1, 2], [0, 2], [0, 1]]  # vertex indices of the edge connecting the neighboring triangle
@@ -42,7 +42,6 @@ def DiffusionProperties(trimesh: Container.TriMesh):
                     trimesh.vertices[trimesh.simplices[receptor][neighbor2edge[donor][1]]]
                 )
                 inter_surface_areas[receptor].append(area)
-    print("Interacting surface areas calculated for each mesh:", inter_surface_areas[418])
     
     # Calculate the diffusion factors for each mesh
     mesh_diffusion = []
@@ -68,14 +67,14 @@ def DiffusionProperties(trimesh: Container.TriMesh):
     )
 
     # Calculate the concentration transfer coefficient for each mesh that is connected to the border
-    # This coefficient $k$ = Volume / Surface Area
+    # This coefficient is calculated as $k$ = Surface Area / Volume
     to_membrane = []
     for membrane_section in range(len(trimesh.adjacent_tri)):
         to_membrane.append(
-            tri_volumes[trimesh.adjacent_tri[membrane_section]] / SurfaceArea(
+            SurfaceArea(
                 trimesh.vertices[trimesh.borders[membrane_section][0]],
                 trimesh.vertices[trimesh.borders[membrane_section][1]]
-            )
+            ) / tri_volumes[trimesh.adjacent_tri[membrane_section]]
         )
     return mesh_diffusion, border_diffusion, to_membrane
 
