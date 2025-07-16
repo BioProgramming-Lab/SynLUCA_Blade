@@ -22,10 +22,10 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         'M_MinDE': (3*num_mesh + num_border, 3*num_mesh + 2*num_border)
         }
 
-    k_bind = 0.1 * 1e0  # Rate of cytosolic MinD_ATP binding to the membrane, in nm/s
-    k_D2D = 0.108/60 * 1e1 # Rate of cytosolic MinD_ATP bind to the membrane that facilitated by membrane bound MinD, in nm^3/s
-    k_E2D = 0.435/60 * 1e1 # Rate of cytosolic MinE bind to the membrane that mediated by membrane bound MinD, in nm^3/s
-    k_hydrolysis = 1.925e1 # Rate of MinDE ATP hydrolysis, in 1/s
+    k_bind = 0.1 * 1e3  # Rate of cytosolic MinD_ATP binding to the membrane, in nm/s
+    k_D2D = 0.108/60 * 1e9 # Rate of cytosolic MinD_ATP bind to the membrane that facilitated by membrane bound MinD, in nm^3/s
+    k_E2D = 0.435/60 * 1e9 # Rate of cytosolic MinE bind to the membrane that mediated by membrane bound MinD, in nm^3/s
+    k_hydrolysis = 1.925 # Rate of MinDE ATP hydrolysis, in 1/s
     k_phosphorylation = 6  # Rate of MinD phosphorylation, in 1/s
 
     last_time = [t_span[0]]
@@ -64,7 +64,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             d_M_MinDE_dt[i] += border_diffusion[i][1] * (M_MinDE[i+1] - M_MinDE[i])
         d_M_MinD_dt[num_border-1] = border_diffusion[-1][0] * (M_MinD[num_border-2] - M_MinD[num_border-1])
         d_M_MinDE_dt[num_border-1] = border_diffusion[-1][0] * (M_MinDE[num_border-2] - M_MinDE[num_border-1])
-
+        
         # Calculate the reaction terms that happen on the membrane
         for i in range(len(trimesh.adjacent_tri)):
 
@@ -81,6 +81,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             ## MinE binding to the membrane mediated by membrane bound MinD
             delta = k_E2D * M_MinD[i] * C_MinE[trimesh.adjacent_tri[i]]
             d_M_MinDE_dt[i] += delta
+            d_M_MinD_dt[i] -= delta
             d_C_MinE_dt[trimesh.adjacent_tri[i]] -= delta * to_membrane[i]
 
             ## MinDE ATP hydrolysis
@@ -96,7 +97,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             delta = k_phosphorylation * C_MinD_ADP[i]
             d_C_MinD_ATP_dt[i] += delta
             d_C_MinD_ADP_dt[i] -= delta
-
+        
         # Assemble the rate of change for each component
         dydt = np.concatenate([
             d_C_MinD_ADP_dt,
@@ -116,8 +117,8 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         t_span,
         y0,
         method='Radau',
-        rtol=1e-13,
-        atol=1e-20,
+        rtol=1e-8,
+        atol=1e-8,
         t_eval=saveat
     )
     pbar.close()
@@ -129,12 +130,13 @@ if __name__ == "__main__":
     container = Container('shape.txt', resolution=400)
     container.establish(animation_dir=None)
 
+    np.random.seed(42)  # For reproducibility
     # Initial concentrations for each mesh and border
-    C_MinD_ADP_y0 = np.random.rand(len(container.trimesh.simplices)) * 1e-1
-    C_MinD_ATP_y0 = np.random.rand(len(container.trimesh.simplices)) * 1e-1
+    C_MinD_ADP_y0 = np.random.rand(len(container.trimesh.simplices)) * 1000
+    C_MinD_ATP_y0 = np.random.rand(len(container.trimesh.simplices)) * 1000
     C_MinE_y0 = np.random.rand(len(container.trimesh.simplices)) * 1000
-    M_MinD_y0 = np.random.rand(len(container.trimesh.borders))
-    M_MinDE_y0 = np.random.rand(len(container.trimesh.borders))
+    M_MinD_y0 = np.random.rand(len(container.trimesh.borders)) * 1000
+    M_MinDE_y0 = np.random.rand(len(container.trimesh.borders)) * 1000
     y0 = np.concatenate([
         C_MinD_ADP_y0,
         C_MinD_ATP_y0,
@@ -143,7 +145,7 @@ if __name__ == "__main__":
         M_MinDE_y0
     ])
 
-    t_span = (0, 500)  # Time span for the simulation
+    t_span = (0, 50)  # Time span for the simulation
 
     sol = MinDE_system(container.trimesh, t_span, y0)
 
@@ -181,6 +183,12 @@ if __name__ == "__main__":
     
     E_tot = []
     D_tot = []
+    C_MinD_ATP_tot = []
+    C_MinD_ADP_tot = []
+    C_MinE_tot = []
+    M_MinD_tot = []
+    M_MinDE_tot = []
+    # Calculate the total amount of each component at each time step
     for i in range(len(sol.t)):
         E_tot.append(
             np.sum(C_MinE[:, i] * tri_volumes) + np.sum(M_MinDE[:, i] * border_areas)
@@ -189,24 +197,35 @@ if __name__ == "__main__":
             np.sum(C_MinD_ADP[:, i] * tri_volumes) + np.sum(C_MinD_ATP[:, i] * tri_volumes) +
             np.sum(M_MinD[:, i] * border_areas) + np.sum(M_MinDE[:, i] * border_areas)
         )
+        C_MinD_ATP_tot.append(np.sum(C_MinD_ATP[:, i] * tri_volumes))
+        C_MinD_ADP_tot.append(np.sum(C_MinD_ADP[:, i] * tri_volumes))
+        C_MinE_tot.append(np.sum(C_MinE[:, i] * tri_volumes))
+        M_MinD_tot.append(np.sum(M_MinD[:, i] * border_areas))
+        M_MinDE_tot.append(np.sum(M_MinDE[:, i] * border_areas))
 
     # Plot the total amount of each component over time
     import matplotlib.pyplot as plt
     plt.figure()
     plt.plot(sol.t, D_tot, label='D_total')
+    plt.plot(sol.t, C_MinD_ADP_tot, label='C_MinD_ADP_total')
+    plt.plot(sol.t, C_MinD_ATP_tot, label='C_MinD_ATP_total')
+    plt.plot(sol.t, M_MinD_tot, label='M_MinD_total')
+    plt.plot(sol.t, M_MinDE_tot, label='M_MinDE_total')
     plt.xlabel('Time')
     plt.ylabel('Total Amount')
     plt.legend()
 
     plt.figure()
     plt.plot(sol.t, E_tot, label='E_total')
+    plt.plot(sol.t, C_MinE_tot, label='C_MinE_total')
+    plt.plot(sol.t, M_MinDE_tot, label='M_MinDE_total')
     plt.xlabel('Time')
     plt.ylabel('Total Amount')
     plt.legend()
-    
+
     plt.show()
 
-    if_animation = False  # Set to True to create an animation
+    if_animation = True  # Set to True to create an animation
     if if_animation:
         from Animation import MakeAnimation
         MakeAnimation(container, sol.t, C_MinE, M_MinDE)

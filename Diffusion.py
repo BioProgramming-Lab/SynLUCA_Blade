@@ -6,7 +6,7 @@ from Container import Container
 import numpy as np
 
 DiffConst_3D = 10 * 1e6  # Diffusion constant, in nm^2/s
-DiffConst_2D = 13 * 1e4  # Diffusion constant, in nm^2/s
+DiffConst_2D = 13 * 1e3  # Diffusion constant, in nm^2/s
 
 
 neighbor2edge = [[1, 2], [0, 2], [0, 1]]  # vertex indices of the edge connecting the neighboring triangle
