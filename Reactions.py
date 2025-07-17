@@ -127,7 +127,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
 
 if __name__ == "__main__":
     # Example usage
-    container = Container('shape.txt', resolution=400)
+    container = Container('shape.txt', resolution=200)
     container.establish(animation_dir=None)
 
     np.random.seed(42)  # For reproducibility
@@ -145,9 +145,13 @@ if __name__ == "__main__":
         M_MinDE_y0
     ])
 
-    t_span = (0, 50)  # Time span for the simulation
+    t_span = (0, 100)  # Time span for the simulation
 
     sol = MinDE_system(container.trimesh, t_span, y0)
+    # Dump the solution to a file, which includes sol.y and sol.t
+    with open("MinDE_solution.pkl", "wb") as f:
+        import pickle
+        pickle.dump({"t": sol.t, "y": sol.y}, f)
 
     num_mesh = len(container.trimesh.simplices)
     num_border = len(container.trimesh.borders)
@@ -223,7 +227,7 @@ if __name__ == "__main__":
     plt.ylabel('Total Amount')
     plt.legend()
 
-    plt.show()
+    # plt.show()
 
     if_animation = True  # Set to True to create an animation
     if if_animation:
