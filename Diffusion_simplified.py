@@ -2,23 +2,22 @@
 # Because of the rotational symmetry of the container, each border edge actually comprises the lateral surface of a circular frustum or cylinder,
 # each mesh is a kind of toroid, and the diffusion properties are thus calculated based on the geometry of these shapes.
 
-from Container import Container
+from Container_simplified import Container
 import numpy as np
 
 DiffConst_3D = 10 * 1e6  # Diffusion constant, in nm^2/s
 DiffConst_2D = 13 * 1e3  # Diffusion constant, in nm^2/s
 
 
-neighbor2edge = [[1, 2], [0, 2], [0, 1]]  # vertex indices of the edge connecting the neighboring triangle
+neighbor2edge = np.array([[1, 2], [0, 2], [0, 1]])  # vertex indices of the edge connecting the neighboring triangle
 
 # Calculate the surface area of the lateral surface of a section of frustum given by two points
 # (using the formular of the area of the lateral surface of a section of frustum,
 # but not times \theta as the rotation degree will be cancelled out with volume)
-def SurfaceArea(coord1, coord2):
-    x1, r1 = coord1
-    x2, r2 = coord2
-    L = np.sqrt((x2 - x1) ** 2 + (r2 - r1) ** 2)  # slant length of the frustum section
-    s = (r1 + r2) * L /2
+def SurfaceArea(coord1: np.ndarray, coord2: np.ndarray):
+    diff = coord2 - coord1
+    L = np.linalg.norm(diff)
+    s = (coord1[1] + coord2[1]) * L / 2
     return s
 
 # Calculate the diffusion factor $Df$, which determines the diffusion flux $I$ as $I=-Df*\Delta C$
@@ -31,19 +30,18 @@ def DiffusionProperties(trimesh: Container.TriMesh):
     trimesh.calculate_centroids()
     # Calculate the volumes of each trianglar frustum
     tri_volumes = trimesh.calculate_tri_volumes()
-    # Calculate the areas of the interfaces of each triangular frustum
-    inter_surface_areas = []
-    for receptor in range(len(trimesh.tri_neighbors_raw)):
-        inter_surface_areas.append([])
-        for donor in range(len(trimesh.tri_neighbors_raw[receptor])):
-            if trimesh.tri_neighbors_raw[receptor][donor] != -1:
-                area = SurfaceArea(
-                    trimesh.vertices[trimesh.simplices[receptor][neighbor2edge[donor][0]]],
-                    trimesh.vertices[trimesh.simplices[receptor][neighbor2edge[donor][1]]]
-                )
-                inter_surface_areas[receptor].append(area)
-    # rewrite with numpy vmap and mask
-    
+
+    # Vectorized calculation of interface surface areas between neighboring triangles using numpy.vectorize and SurfaceArea
+    tri_edge_vertex_indices = trimesh.simplices[:, neighbor2edge]  # shape (n_tri, 3, 2)
+    # Get the coordinates for each edge's two vertices
+    edge_coords_1 = trimesh.vertices[tri_edge_vertex_indices[:, :, 0]]  # shape (n_tri, 3, 2)
+    edge_coords_2 = trimesh.vertices[tri_edge_vertex_indices[:, :, 1]]  # shape (n_tri, 3, 2)
+    # Use numpy.vectorize to apply SurfaceArea to each edge
+    surface_area_vec = np.vectorize(SurfaceArea, signature='(n),(n)->()')
+    inter_surface_areas = surface_area_vec(edge_coords_1, edge_coords_2)  # shape (n_tri, 3)
+
+    pass # code checked until here
+
     # Calculate the diffusion factors for each mesh
     mesh_diffusion = []
     for receptor in range(len(trimesh.tri_neighbors)):
@@ -81,7 +79,7 @@ def DiffusionProperties(trimesh: Container.TriMesh):
 
 if __name__ == "__main__":
     # Example usage
-    container = Container('shape.txt', resolution=100)
+    container = Container('shape.txt', resolution=2000)
     container.establish(animation_dir=None)
 
     tri, bor, to_mem = DiffusionProperties(container.trimesh)
