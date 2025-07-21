@@ -30,7 +30,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
     #last_time = [t_span[0]]
     #pbar = tqdm(total=t_span[1], desc="Integrating MinDE system", unit="s", bar_format="{l_bar}{bar}| {n:.2f}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
 
-    
+
     def MinDE_reactions(t, y, args):
 
         # Unpack state
@@ -82,7 +82,8 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             d_M_MinD_dt,
             d_M_MinDE_dt
         ])
-        
+        print("t:", t, "dydt:", dydt)
+
         '''if t - last_time[0] >= 0.04:  # Update progress bar every 0.04 seconds
             pbar.update(t - last_time[0])
             last_time[0] = t'''
@@ -96,7 +97,8 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         t0=t_span[0],
         t1=t_span[1],
         dt0=0.04,
-        y0=y0
+        y0=y0,
+        saveat=SaveAt(ts=jnp.arange(t_span[0], t_span[1], 0.04)),
     )
     # pbar.close()
 
@@ -126,9 +128,12 @@ if __name__ == "__main__":
         M_MinDE_y0
     ])
 
-    t_span = (0, 100)  # Time span for the simulation
+    t_span = (0, 0.08)  # Time span for the simulation
 
     sol = MinDE_system(container.trimesh, t_span, y0)
+    print("ts:", sol.ts)
+    print("ys:", sol.ys)
+
     # Dump the solution to a file, which includes sol.y and sol.t
     with open("MinDE_solution.pkl", "wb") as f:
         import pickle

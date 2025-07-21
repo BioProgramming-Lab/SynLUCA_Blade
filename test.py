@@ -1,6 +1,13 @@
-import numpy as np
+from diffrax import diffeqsolve, Dopri5, ODETerm, SaveAt, PIDController
 
-a = np.array([1, 2, 3])
-b = np.array([[1, 2]])
+vector_field = lambda t, y, args: -y
+term = ODETerm(vector_field)
+solver = Dopri5()
+saveat = SaveAt(ts=[0., 1., 2., 3.])
+stepsize_controller = PIDController(rtol=1e-5, atol=1e-5)
 
-print(a[b])
+sol = diffeqsolve(term, solver, t0=0, t1=3, dt0=0.1, y0=1,
+                  stepsize_controller=stepsize_controller)
+
+print(sol.ts)  # DeviceArray([0.   , 1.   , 2.   , 3.    ])
+print(sol.ys)  # DeviceArray([1.   , 0.368, 0.135, 0.0498])

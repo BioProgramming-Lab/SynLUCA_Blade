@@ -86,6 +86,7 @@ if __name__ == "__main__":
     import pickle
     with open("MinDE_solution.pkl", "rb") as f:
         sol = pickle.load(f)
+    print("sol.keys", sol.keys())
 
     num_mesh = len(container.trimesh.simplices)
     num_border = len(container.trimesh.borders)
