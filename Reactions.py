@@ -3,8 +3,8 @@ from Diffusion import DiffusionProperties
 
 import jax
 import jax.numpy as jnp
-from diffrax import diffeqsolve, ODETerm, SaveAt, Kvaerno5, PIDController, Euler
-jax.config.update("jax_disable_jit", True)
+from diffrax import diffeqsolve, ODETerm, SaveAt, Kvaerno5, PIDController, Euler, TqdmProgressMeter
+#jax.config.update("jax_disable_jit", True)
 jax.config.update("jax_enable_x64", True)
 #jax.config.update("jax_debug_nans", True)
 
@@ -48,14 +48,14 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         d_C_MinE_dt = jnp.zeros_like(C_MinE)
         d_M_MinD_dt = jnp.zeros_like(M_MinD)
         d_M_MinDE_dt = jnp.zeros_like(M_MinDE)
-        '''# Vectorized diffusion for cytosolic components
+        # Vectorized diffusion for cytosolic components
         d_C_MinD_ADP_dt = jnp.sum(jnp.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinD_ADP[trimesh.tri_neighbors] - C_MinD_ADP[:, jnp.newaxis]), axis=-1)
         d_C_MinD_ATP_dt = jnp.sum(jnp.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinD_ATP[trimesh.tri_neighbors] - C_MinD_ATP[:, jnp.newaxis]), axis=-1)
         d_C_MinE_dt = jnp.sum(jnp.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinE[trimesh.tri_neighbors] - C_MinE[:, jnp.newaxis]), axis=-1)
 
         # Calculate the diffusion term for each membrane component
         d_M_MinD_dt = jnp.sum(jnp.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinD[trimesh.bor_neighbors] - M_MinD[:, jnp.newaxis]), axis=-1)
-        d_M_MinDE_dt = jnp.sum(jnp.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinDE[trimesh.bor_neighbors] - M_MinDE[:, jnp.newaxis]), axis=-1)'''
+        d_M_MinDE_dt = jnp.sum(jnp.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinDE[trimesh.bor_neighbors] - M_MinDE[:, jnp.newaxis]), axis=-1)
         
         # Calculate the reaction terms that happen on the membrane
         ## MinD_ATP binding to the membrane
@@ -115,6 +115,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
     MinDE_reactions(0, y0, None)  # Initialize the reaction function
     stepsize_controller = PIDController(rtol=1e-10, atol=1e-10)
     saveat = SaveAt(ts=jnp.arange(t_span[0], t_span[1], 0.04))
+    progress_meter = TqdmProgressMeter(20)
     sol = diffeqsolve(
         ODETerm(MinDE_reactions),
         Kvaerno5(),
@@ -125,6 +126,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         saveat=saveat,
         max_steps=1000000,
         stepsize_controller=stepsize_controller,
+        progress_meter=progress_meter
     )
     # pbar.close()
 
@@ -133,7 +135,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
 if __name__ == "__main__":
     jax.clear_caches()
     # Example usage
-    container = Container('shape.txt', resolution=200)
+    container = Container('shape.txt', resolution=300)
     container.establish(animation_dir=None)
 
     # Initial concentrations for each mesh and border
@@ -164,7 +166,7 @@ if __name__ == "__main__":
     print("M_MinD:", M_MinD_y0)
     print("M_MinDE:", M_MinDE_y0, "\n")
 
-    t_span = (0, 100)  # Time span for the simulation
+    t_span = (0, 50)  # Time span for the simulation
 
     sol = MinDE_system(container.trimesh, t_span, y0)
     print("ts:", sol.ts)
