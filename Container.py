@@ -281,7 +281,7 @@ class Container:
                 raise ValueError(f"Vertex {i} has been modified from {points[i]} to {self.trimesh.vertices[i]} during triangulation.")
 
 if __name__ == "__main__":
-    container = Container('shape.txt', resolution=2000)
+    container = Container('shape.txt', resolution=1000)
     container.establish(animation_dir=None)
 
     print("Number of border nodes:", len(container.border_nodes))
@@ -308,6 +308,7 @@ if __name__ == "__main__":
         plt.plot(x, r, color='red', linewidth=2)
     
     # plot triangular meshes that have border neighbors using adjacent_tri
+    print("adjacent_tri:", container.trimesh.adjacent_tri)
     for tri_idx in container.trimesh.adjacent_tri:
         if tri_idx != -1:
             simplex = container.trimesh.simplices[tri_idx]

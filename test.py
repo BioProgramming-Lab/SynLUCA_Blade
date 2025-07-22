@@ -1,13 +1,10 @@
-from diffrax import diffeqsolve, Dopri5, ODETerm, SaveAt, PIDController
+import toml
 
-vector_field = lambda t, y, args: -y
-term = ODETerm(vector_field)
-solver = Dopri5()
-saveat = SaveAt(ts=[0., 1., 2., 3.])
-stepsize_controller = PIDController(rtol=1e-5, atol=1e-5)
+data = {'t': [0, 1, 2, 3, 4, 5, 6, 7],
+        'y': [0, 1, 8, 27, 64, 65, 66, 66]}
 
-sol = diffeqsolve(term, solver, t0=0, t1=3, dt0=0.1, y0=1,
-                  stepsize_controller=stepsize_controller)
+with open("config.toml", "w") as f:
+    toml.dump(data, f)
 
-print(sol.ts)  # DeviceArray([0.   , 1.   , 2.   , 3.    ])
-print(sol.ys)  # DeviceArray([1.   , 0.368, 0.135, 0.0498])
+'''data = toml.load("config.toml")
+print(data)'''

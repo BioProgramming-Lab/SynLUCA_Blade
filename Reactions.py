@@ -3,10 +3,10 @@ from Diffusion import DiffusionProperties
 
 import jax
 import jax.numpy as jnp
-from diffrax import diffeqsolve, ODETerm, SaveAt, Dopri5, PIDController
+from diffrax import diffeqsolve, ODETerm, SaveAt, Kvaerno5, PIDController, Euler
 jax.config.update("jax_disable_jit", True)
 jax.config.update("jax_enable_x64", True)
-jax.config.update("jax_debug_nans", True)
+#jax.config.update("jax_debug_nans", True)
 
 # mesh index in y ranges from 0 to num_mesh-1, where num_mesh is the total number of mesh elements
 # border index in y ranges from num_mesh to len(y)-1
@@ -33,7 +33,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
     #last_time = [t_span[0]]
     #pbar = tqdm(total=t_span[1], desc="Integrating MinDE system", unit="s", bar_format="{l_bar}{bar}| {n:.2f}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
 
-
+    @jax.jit
     def MinDE_reactions(t, y, args):
 
         # Unpack state
@@ -43,15 +43,20 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         M_MinD = y[MinDE_matters['M_MinD'][0]:MinDE_matters['M_MinD'][1]]
         M_MinDE = y[MinDE_matters['M_MinDE'][0]:MinDE_matters['M_MinDE'][1]]
 
-        # Vectorized diffusion for cytosolic components
+        d_C_MinD_ADP_dt = jnp.zeros_like(C_MinD_ADP)
+        d_C_MinD_ATP_dt = jnp.zeros_like(C_MinD_ATP)
+        d_C_MinE_dt = jnp.zeros_like(C_MinE)
+        d_M_MinD_dt = jnp.zeros_like(M_MinD)
+        d_M_MinDE_dt = jnp.zeros_like(M_MinDE)
+        '''# Vectorized diffusion for cytosolic components
         d_C_MinD_ADP_dt = jnp.sum(jnp.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinD_ADP[trimesh.tri_neighbors] - C_MinD_ADP[:, jnp.newaxis]), axis=-1)
         d_C_MinD_ATP_dt = jnp.sum(jnp.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinD_ATP[trimesh.tri_neighbors] - C_MinD_ATP[:, jnp.newaxis]), axis=-1)
         d_C_MinE_dt = jnp.sum(jnp.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinE[trimesh.tri_neighbors] - C_MinE[:, jnp.newaxis]), axis=-1)
 
         # Calculate the diffusion term for each membrane component
         d_M_MinD_dt = jnp.sum(jnp.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinD[trimesh.bor_neighbors] - M_MinD[:, jnp.newaxis]), axis=-1)
-        d_M_MinDE_dt = jnp.sum(jnp.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinDE[trimesh.bor_neighbors] - M_MinDE[:, jnp.newaxis]), axis=-1)
-
+        d_M_MinDE_dt = jnp.sum(jnp.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinDE[trimesh.bor_neighbors] - M_MinDE[:, jnp.newaxis]), axis=-1)'''
+        
         # Calculate the reaction terms that happen on the membrane
         ## MinD_ATP binding to the membrane
         ## MinD_ATP binding to the membrane is also facilitated by membrane bound MinD
@@ -66,7 +71,7 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         d_C_MinE_dt = d_C_MinE_dt.at[trimesh.adjacent_tri].subtract(delta_MinE_to_membrane * to_membrane)
 
         ## MinDE ATP hydrolysis
-        delta_MinDE_hydrolysis = k_hydrolysis * M_MinDE[trimesh.adjacent_tri]
+        delta_MinDE_hydrolysis = k_hydrolysis * M_MinDE
         d_M_MinDE_dt = d_M_MinDE_dt.at[:].subtract(delta_MinDE_hydrolysis)
         d_C_MinD_ADP_dt = d_C_MinD_ADP_dt.at[trimesh.adjacent_tri].add(delta_MinDE_hydrolysis * to_membrane)
         d_C_MinE_dt = d_C_MinE_dt.at[trimesh.adjacent_tri].add(delta_MinDE_hydrolysis * to_membrane)
@@ -85,138 +90,170 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             d_M_MinD_dt,
             d_M_MinDE_dt
         ])
-        jax.debug.print("t:{t}\ndydt:{dydt}", t=t, dydt=dydt)
+        '''jax.debug.print("t: {t}\n", t=t)
+        jax.debug.print("y: {y}\n", y=y)
+        jax.debug.print("dydt: {dydt}\n", dydt=dydt)
+        quit()
+        jax.debug.print("t:{t}\n", t=t)
+        jax.debug.print("C_MinD_ADP: {C_MinD_ADP}", C_MinD_ADP=C_MinD_ADP)
+        jax.debug.print("C_MinD_ATP: {C_MinD_ATP}", C_MinD_ATP=C_MinD_ATP)
+        jax.debug.print("C_MinE: {C_MinE}", C_MinE=C_MinE)
+        jax.debug.print("M_MinD: {M_MinD}", M_MinD=M_MinD)
+        jax.debug.print("M_MinDE: {M_MinDE}\n", M_MinDE=M_MinDE)
+        jax.debug.print("d_C_MinD_ADP_dt: {d_C_MinD_ADP_dt}", d_C_MinD_ADP_dt=d_C_MinD_ADP_dt)
+        jax.debug.print("d_C_MinD_ATP_dt: {d_C_MinD_ATP_dt}", d_C_MinD_ATP_dt=d_C_MinD_ATP_dt)
+        jax.debug.print("d_C_MinE_dt: {d_C_MinE_dt}", d_C_MinE_dt=d_C_MinE_dt)
+        jax.debug.print("d_M_MinD_dt: {d_M_MinD_dt}", d_M_MinD_dt=d_M_MinD_dt)
+        jax.debug.print("d_M_MinDE_dt: {d_M_MinDE_dt}\n", d_M_MinDE_dt=d_M_MinDE_dt)'''
 
         '''if t - last_time[0] >= 0.04:  # Update progress bar every 0.04 seconds
             pbar.update(t - last_time[0])
             last_time[0] = t'''
-
+        # jax.debug.breakpoint()  # Uncomment this line to debug the function
         return dydt
     
     MinDE_reactions(0, y0, None)  # Initialize the reaction function
-
+    stepsize_controller = PIDController(rtol=1e-10, atol=1e-10)
+    saveat = SaveAt(ts=jnp.arange(t_span[0], t_span[1], 0.04))
     sol = diffeqsolve(
         ODETerm(MinDE_reactions),
-        Dopri5(),
+        Kvaerno5(),
         t0=t_span[0],
         t1=t_span[1],
-        dt0=0.04,
+        dt0=None,
         y0=y0,
-        saveat=SaveAt(ts=jnp.arange(t_span[0], t_span[1], 0.04))
+        saveat=saveat,
+        max_steps=1000000,
+        stepsize_controller=stepsize_controller,
     )
     # pbar.close()
 
     return sol
 
 if __name__ == "__main__":
-    with jax.disable_jit():
-        # Example usage
-        container = Container('shape.txt', resolution=2000)
-        container.establish(animation_dir=None)
+    jax.clear_caches()
+    # Example usage
+    container = Container('shape.txt', resolution=200)
+    container.establish(animation_dir=None)
 
-        # Initial concentrations for each mesh and border
-        key = jax.random.PRNGKey(42)
-        C_MinD_ADP_y0 = jnp.full((len(container.trimesh.simplices),), 0.1)  # Initial concentration of MinD_ADP in each mesh
-        C_MinD_ATP_y0 = jnp.full((len(container.trimesh.simplices),), 0.1)  # Initial concentration of MinD_ATP in each mesh
-        C_MinE_y0 = jnp.full((len(container.trimesh.simplices),), 0.1)  # Initial concentration of MinE in each mesh
-        M_MinD_y0 = jnp.full((len(container.trimesh.borders),), 0.1)  # Initial concentration of membrane bound MinD in each border
-        M_MinDE_y0 = jnp.full((len(container.trimesh.borders),), 0.1)  # Initial concentration of membrane bound MinDE in each border
-        y0 = jnp.concatenate([
-            C_MinD_ADP_y0,
-            C_MinD_ATP_y0,
-            C_MinE_y0,
-            M_MinD_y0,
-            M_MinDE_y0
-        ])
+    # Initial concentrations for each mesh and border
+    key = jax.random.PRNGKey(42)
+    C_MinD_ADP_y0 = jax.random.uniform(key, (len(container.trimesh.simplices),)) * 1000
+    key, subkey = jax.random.split(key)
+    C_MinD_ATP_y0 = jax.random.uniform(subkey, (len(container.trimesh.simplices),)) * 1000
+    key, subkey = jax.random.split(key)
+    C_MinE_y0 = jax.random.uniform(subkey, (len(container.trimesh.simplices),)) * 1000
+    key, subkey = jax.random.split(key)
+    M_MinD_y0 = jax.random.uniform(subkey, (len(container.trimesh.borders),)) * 1000
+    key, subkey = jax.random.split(key)
+    M_MinDE_y0 = jax.random.uniform(subkey, (len(container.trimesh.borders),)) * 1000
+    y0 = jnp.concatenate([
+        C_MinD_ADP_y0,
+        C_MinD_ATP_y0,
+        C_MinE_y0,
+        M_MinD_y0,
+        M_MinDE_y0
+    ])
+    for i in y0:
+        print(i, end=', ')
 
-        t_span = (0, 0.08)  # Time span for the simulation
+    print("Initial concentrations:")
+    print("C_MinD_ADP:", C_MinD_ADP_y0)
+    print("C_MinD_ATP:", C_MinD_ATP_y0)
+    print("C_MinE:", C_MinE_y0)
+    print("M_MinD:", M_MinD_y0)
+    print("M_MinDE:", M_MinDE_y0, "\n")
 
-        sol = MinDE_system(container.trimesh, t_span, y0)
-        print("ts:", sol.ts)
-        print("ys:", sol.ys)
+    t_span = (0, 100)  # Time span for the simulation
 
-        # Dump the solution to a file, which includes sol.y and sol.t
-        with open("MinDE_solution.pkl", "wb") as f:
-            import pickle
-            pickle.dump({"t": sol.ts, "y": sol.ys}, f)
+    sol = MinDE_system(container.trimesh, t_span, y0)
+    print("ts:", sol.ts)
+    print("ys:", sol.ys)
 
-        num_mesh = len(container.trimesh.simplices)
-        num_border = len(container.trimesh.borders)
+    # Dump the solution to a file, which includes sol.y and sol.t
+    with open("MinDE_solution.pkl", "wb") as f:
+        import pickle
+        pickle.dump({"t": sol.ts, "y": sol.ys}, f)
 
-        # Parse solution for each component
-        C_MinD_ADP = sol.ys[0:num_mesh, :]
-        C_MinD_ATP = sol.ys[num_mesh:2*num_mesh, :]
-        C_MinE = sol.ys[2*num_mesh:3*num_mesh, :]
-        M_MinD = sol.ys[3*num_mesh:3*num_mesh+num_border, :]
-        M_MinDE = sol.ys[3*num_mesh+num_border:3*num_mesh+2*num_border, :]
+    num_mesh = len(container.trimesh.simplices)
+    num_border = len(container.trimesh.borders)
+
+    import numpy as np
+    # Parse solution for each component
+    C_MinD_ADP = np.array(sol.ys[:, 0:num_mesh]).T
+    C_MinD_ATP = np.array(sol.ys[:, num_mesh:2*num_mesh]).T
+    C_MinE = np.array(sol.ys[:, 2*num_mesh:3*num_mesh]).T
+    M_MinD = np.array(sol.ys[:, 3*num_mesh:3*num_mesh+num_border]).T
+    M_MinDE = np.array(sol.ys[:, 3*num_mesh+num_border:3*num_mesh+2*num_border]).T
 
 
-        # To test the conservation of matters, # we can calculate the total amount of each component at each time step
-        # total amount of each component = conc_V * volume (for meshes) + conc_A * area (for borders)
-        tri_volumes = container.trimesh.calculate_tri_volumes()
+    # To test the conservation of matters, # we can calculate the total amount of each component at each time step
+    # total amount of each component = conc_V * volume (for meshes) + conc_A * area (for borders)
+    tri_volumes = container.trimesh.calculate_tri_volumes()
 
-        # directly copied from Diffusion.py
-        def SurfaceArea(coord1, coord2):
-            x1, r1 = coord1
-            x2, r2 = coord2
-            L = jnp.sqrt((x2 - x1) ** 2 + (r2 - r1) ** 2)  # slant length of the frustum section
-            s = (r1 + r2) * L /2
-            return s
+    # directly copied from Diffusion.py
+    def SurfaceArea(coord1, coord2):
+        x1, r1 = coord1
+        x2, r2 = coord2
+        L = jnp.sqrt((x2 - x1) ** 2 + (r2 - r1) ** 2)  # slant length of the frustum section
+        s = (r1 + r2) * L /2
+        return s
 
-        border_areas = []
-        for membrane_section in range(len(container.trimesh.adjacent_tri)):
-            border_areas.append(
-                SurfaceArea(
-                    container.trimesh.vertices[container.trimesh.borders[membrane_section][0]],
-                    container.trimesh.vertices[container.trimesh.borders[membrane_section][1]]
-                )
+    border_areas = []
+    for membrane_section in range(len(container.trimesh.adjacent_tri)):
+        border_areas.append(
+            SurfaceArea(
+                container.trimesh.vertices[container.trimesh.borders[membrane_section][0]],
+                container.trimesh.vertices[container.trimesh.borders[membrane_section][1]]
             )
-        
-        E_tot = []
-        D_tot = []
-        C_MinD_ATP_tot = []
-        C_MinD_ADP_tot = []
-        C_MinE_tot = []
-        M_MinD_tot = []
-        M_MinDE_tot = []
-        # Calculate the total amount of each component at each time step
-        for i in range(len(sol.t)):
-            E_tot.append(
-                np.sum(C_MinE[:, i] * tri_volumes) + np.sum(M_MinDE[:, i] * border_areas)
-            )
-            D_tot.append(
-                np.sum(C_MinD_ADP[:, i] * tri_volumes) + np.sum(C_MinD_ATP[:, i] * tri_volumes) +
-                np.sum(M_MinD[:, i] * border_areas) + np.sum(M_MinDE[:, i] * border_areas)
-            )
-            C_MinD_ATP_tot.append(np.sum(C_MinD_ATP[:, i] * tri_volumes))
-            C_MinD_ADP_tot.append(np.sum(C_MinD_ADP[:, i] * tri_volumes))
-            C_MinE_tot.append(np.sum(C_MinE[:, i] * tri_volumes))
-            M_MinD_tot.append(np.sum(M_MinD[:, i] * border_areas))
-            M_MinDE_tot.append(np.sum(M_MinDE[:, i] * border_areas))
+        )
+    
+    E_tot = []
+    D_tot = []
+    C_MinD_ATP_tot = []
+    C_MinD_ADP_tot = []
+    C_MinE_tot = []
+    M_MinD_tot = []
+    M_MinDE_tot = []
+    
+    # Calculate the total amount of each component at each time step
+    for i in range(len(sol.ts)):
+        E_tot.append(
+            np.sum(C_MinE[:, i] * tri_volumes) + np.sum(M_MinDE[:, i] * border_areas)
+        )
+        D_tot.append(
+            np.sum(C_MinD_ADP[:, i] * tri_volumes) + np.sum(C_MinD_ATP[:, i] * tri_volumes) +
+            np.sum(M_MinD[:, i] * border_areas) + np.sum(M_MinDE[:, i] * border_areas)
+        )
+        C_MinD_ATP_tot.append(np.sum(C_MinD_ATP[:, i] * tri_volumes))
+        C_MinD_ADP_tot.append(np.sum(C_MinD_ADP[:, i] * tri_volumes))
+        C_MinE_tot.append(np.sum(C_MinE[:, i] * tri_volumes))
+        M_MinD_tot.append(np.sum(M_MinD[:, i] * border_areas))
+        M_MinDE_tot.append(np.sum(M_MinDE[:, i] * border_areas))
 
-        # Plot the total amount of each component over time
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.plot(sol.t, D_tot, label='D_total')
-        plt.plot(sol.t, C_MinD_ADP_tot, label='C_MinD_ADP_total')
-        plt.plot(sol.t, C_MinD_ATP_tot, label='C_MinD_ATP_total')
-        plt.plot(sol.t, M_MinD_tot, label='M_MinD_total')
-        plt.plot(sol.t, M_MinDE_tot, label='M_MinDE_total')
-        plt.xlabel('Time')
-        plt.ylabel('Total Amount')
-        plt.legend()
+    # Plot the total amount of each component over time
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.plot(sol.ts, D_tot, label='D_total')
+    plt.plot(sol.ts, C_MinD_ADP_tot, label='C_MinD_ADP_total')
+    plt.plot(sol.ts, C_MinD_ATP_tot, label='C_MinD_ATP_total')
+    plt.plot(sol.ts, M_MinD_tot, label='M_MinD_total')
+    plt.plot(sol.ts, M_MinDE_tot, label='M_MinDE_total')
+    plt.xlabel('Time')
+    plt.ylabel('Total Amount')
+    plt.legend()
 
-        plt.figure()
-        plt.plot(sol.t, E_tot, label='E_total')
-        plt.plot(sol.t, C_MinE_tot, label='C_MinE_total')
-        plt.plot(sol.t, M_MinDE_tot, label='M_MinDE_total')
-        plt.xlabel('Time')
-        plt.ylabel('Total Amount')
-        plt.legend()
+    plt.figure()
+    plt.plot(sol.ts, E_tot, label='E_total')
+    plt.plot(sol.ts, C_MinE_tot, label='C_MinE_total')
+    plt.plot(sol.ts, M_MinDE_tot, label='M_MinDE_total')
+    plt.xlabel('Time')
+    plt.ylabel('Total Amount')
+    plt.legend()
 
-        # plt.show()
+    plt.show()
 
-        if_animation = True  # Set to True to create an animation
-        if if_animation:
-            from Animation import MakeAnimation
-            MakeAnimation(container, sol.t, C_MinE, M_MinDE)
+    if_animation = True  # Set to True to create an animation
+    if if_animation:
+        from Animation import MakeAnimation
+        MakeAnimation(container, sol.ts, C_MinE, M_MinDE)

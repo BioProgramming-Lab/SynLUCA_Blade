@@ -45,7 +45,7 @@ def DiffusionProperties(trimesh: Container.TriMesh):
     # Vectorized calculation of diffusion factors for each mesh
     ## the diffusion factor of tri-mesh $Df$ = DiffConst * InteractingSurface Area / Volume / centroids distance
     tri_centroids_dis = np.linalg.norm(trimesh.tri_centroids[:, np.newaxis, :] - trimesh.tri_centroids[trimesh.tri_neighbors], axis=-1) # shape (n_tri, n_neighbors(3)), unmasked
-    mesh_diffusion = DiffConst_3D * inter_surface_areas / tri_volumes[:, np.newaxis] / tri_centroids_dis * trimesh.tri_neighbors_mask
+    mesh_diffusion = DiffConst_3D * inter_surface_areas / np.where(trimesh.tri_neighbors_mask, tri_volumes[:, np.newaxis] * tri_centroids_dis, 9999999)
 
     # Vectorized calculation of the diffusion factors for each border edge
     ## the diffusion factor of border edge $Df$ = DiffConst * InteractingCurve Length / Surface / centroids distance
