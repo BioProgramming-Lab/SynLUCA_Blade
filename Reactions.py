@@ -90,25 +90,6 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             d_M_MinD_dt,
             d_M_MinDE_dt
         ])
-        '''jax.debug.print("t: {t}\n", t=t)
-        jax.debug.print("y: {y}\n", y=y)
-        jax.debug.print("dydt: {dydt}\n", dydt=dydt)
-        quit()
-        jax.debug.print("t:{t}\n", t=t)
-        jax.debug.print("C_MinD_ADP: {C_MinD_ADP}", C_MinD_ADP=C_MinD_ADP)
-        jax.debug.print("C_MinD_ATP: {C_MinD_ATP}", C_MinD_ATP=C_MinD_ATP)
-        jax.debug.print("C_MinE: {C_MinE}", C_MinE=C_MinE)
-        jax.debug.print("M_MinD: {M_MinD}", M_MinD=M_MinD)
-        jax.debug.print("M_MinDE: {M_MinDE}\n", M_MinDE=M_MinDE)
-        jax.debug.print("d_C_MinD_ADP_dt: {d_C_MinD_ADP_dt}", d_C_MinD_ADP_dt=d_C_MinD_ADP_dt)
-        jax.debug.print("d_C_MinD_ATP_dt: {d_C_MinD_ATP_dt}", d_C_MinD_ATP_dt=d_C_MinD_ATP_dt)
-        jax.debug.print("d_C_MinE_dt: {d_C_MinE_dt}", d_C_MinE_dt=d_C_MinE_dt)
-        jax.debug.print("d_M_MinD_dt: {d_M_MinD_dt}", d_M_MinD_dt=d_M_MinD_dt)
-        jax.debug.print("d_M_MinDE_dt: {d_M_MinDE_dt}\n", d_M_MinDE_dt=d_M_MinDE_dt)'''
-
-        '''if t - last_time[0] >= 0.04:  # Update progress bar every 0.04 seconds
-            pbar.update(t - last_time[0])
-            last_time[0] = t'''
         # jax.debug.breakpoint()  # Uncomment this line to debug the function
         return dydt
     
@@ -133,9 +114,10 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
     return sol
 
 if __name__ == "__main__":
+    print(jax.devices())
     jax.clear_caches()
     # Example usage
-    container = Container('shape.txt', resolution=300)
+    container = Container('shape.txt', resolution=200)
     container.establish(animation_dir=None)
 
     # Initial concentrations for each mesh and border
