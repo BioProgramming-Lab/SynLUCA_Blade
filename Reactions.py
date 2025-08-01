@@ -1,9 +1,7 @@
 from Container import Container
 from Diffusion import DiffusionProperties
-
-from scipy.integrate import solve_ivp
 import numpy as np
-
+from scipy.integrate import solve_ivp
 from tqdm import tqdm
 
 # mesh index in y ranges from 0 to num_mesh-1, where num_mesh is the total number of mesh elements
@@ -28,12 +26,14 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
     k_hydrolysis = 1.925 # Rate of MinDE ATP hydrolysis, in 1/s
     k_phosphorylation = 6  # Rate of MinD phosphorylation, in 1/s
 
+    #last_time = [t_span[0]]
+    #pbar = tqdm(total=t_span[1], desc="Integrating MinDE system", unit="s", bar_format="{l_bar}{bar}| {n:.2f}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+
     last_time = [t_span[0]]
     pbar = tqdm(total=t_span[1], desc="Integrating MinDE system", unit="s", bar_format="{l_bar}{bar}| {n:.2f}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
-
     def MinDE_reactions(t, y):
 
-        # Initialize the rate of change
+        # Unpack state
         C_MinD_ADP = y[MinDE_matters['C_MinD_ADP'][0]:MinDE_matters['C_MinD_ADP'][1]]
         C_MinD_ATP = y[MinDE_matters['C_MinD_ATP'][0]:MinDE_matters['C_MinD_ATP'][1]]
         C_MinE = y[MinDE_matters['C_MinE'][0]:MinDE_matters['C_MinE'][1]]
@@ -45,58 +45,39 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
         d_C_MinE_dt = np.zeros_like(C_MinE)
         d_M_MinD_dt = np.zeros_like(M_MinD)
         d_M_MinDE_dt = np.zeros_like(M_MinDE)
-
-        # Calculate the diffusion term for each cytosolic component
-        for i in range(num_mesh):
-            for j in range(len(mesh_diffusion[i])):
-                neighbor_index = trimesh.tri_neighbors[i][j]
-                d_C_MinD_ADP_dt[i] += mesh_diffusion[i][j] * (C_MinD_ADP[neighbor_index] - C_MinD_ADP[i])
-                d_C_MinD_ATP_dt[i] += mesh_diffusion[i][j] * (C_MinD_ATP[neighbor_index] - C_MinD_ATP[i])
-                d_C_MinE_dt[i] += mesh_diffusion[i][j] * (C_MinE[neighbor_index] - C_MinE[i])
+        # Vectorized diffusion for cytosolic components
+        d_C_MinD_ADP_dt = np.sum(np.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinD_ADP[trimesh.tri_neighbors] - C_MinD_ADP[:, np.newaxis]), axis=-1)
+        d_C_MinD_ATP_dt = np.sum(np.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinD_ATP[trimesh.tri_neighbors] - C_MinD_ATP[:, np.newaxis]), axis=-1)
+        d_C_MinE_dt = np.sum(np.where(trimesh.tri_neighbors_mask, mesh_diffusion, 0) * (C_MinE[trimesh.tri_neighbors] - C_MinE[:, np.newaxis]), axis=-1)
 
         # Calculate the diffusion term for each membrane component
-        d_M_MinD_dt[0] = border_diffusion[0][0] * (M_MinD[1] - M_MinD[0])
-        d_M_MinDE_dt[0] = border_diffusion[0][0] * (M_MinDE[1] - M_MinDE[0])
-        for i in range(1, num_border-1):
-            d_M_MinD_dt[i] += border_diffusion[i][0] * (M_MinD[i-1] - M_MinD[i])
-            d_M_MinD_dt[i] += border_diffusion[i][1] * (M_MinD[i+1] - M_MinD[i])
-            d_M_MinDE_dt[i] += border_diffusion[i][0] * (M_MinDE[i-1] - M_MinDE[i])
-            d_M_MinDE_dt[i] += border_diffusion[i][1] * (M_MinDE[i+1] - M_MinDE[i])
-        d_M_MinD_dt[num_border-1] = border_diffusion[-1][0] * (M_MinD[num_border-2] - M_MinD[num_border-1])
-        d_M_MinDE_dt[num_border-1] = border_diffusion[-1][0] * (M_MinDE[num_border-2] - M_MinDE[num_border-1])
-        
+        d_M_MinD_dt = np.sum(np.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinD[trimesh.bor_neighbors] - M_MinD[:, np.newaxis]), axis=-1)
+        d_M_MinDE_dt = np.sum(np.where(trimesh.bor_neighbors_mask, border_diffusion, 0) * (M_MinDE[trimesh.bor_neighbors] - M_MinDE[:, np.newaxis]), axis=-1)
+
         # Calculate the reaction terms that happen on the membrane
-        for i in range(len(trimesh.adjacent_tri)):
+        ## MinD_ATP binding to the membrane
+        ## MinD_ATP binding to the membrane is also facilitated by membrane bound MinD
+        delta_MinD_ATP_to_membrane = (k_bind  +  k_D2D * M_MinD) * C_MinD_ATP[trimesh.adjacent_tri]
+        d_M_MinD_dt += delta_MinD_ATP_to_membrane
+        d_C_MinD_ATP_dt[trimesh.adjacent_tri] -= delta_MinD_ATP_to_membrane * to_membrane
 
-            ## MinD ATP binding to the membrane
-            delta = k_bind * C_MinD_ATP[trimesh.adjacent_tri[i]]
-            d_M_MinD_dt[i] += delta
-            d_C_MinD_ATP_dt[trimesh.adjacent_tri[i]] -= delta * to_membrane[i]
+        ## MinE binding to the membrane mediated by membrane bound MinD
+        delta_MinE_to_membrane = k_E2D * M_MinD * C_MinE[trimesh.adjacent_tri]
+        d_M_MinDE_dt += delta_MinE_to_membrane
+        d_M_MinD_dt -= delta_MinE_to_membrane
+        d_C_MinE_dt[trimesh.adjacent_tri] -= delta_MinE_to_membrane * to_membrane
 
-            ## MinD ATP binding to the membrane facilitated by membrane bound MinD
-            delta = k_D2D * M_MinD[i] * C_MinD_ATP[trimesh.adjacent_tri[i]]
-            d_M_MinD_dt[i] += delta
-            d_C_MinD_ATP_dt[trimesh.adjacent_tri[i]] -= delta * to_membrane[i]
+        ## MinDE ATP hydrolysis
+        delta_MinDE_hydrolysis = k_hydrolysis * M_MinDE
+        d_M_MinDE_dt -= delta_MinDE_hydrolysis
+        d_C_MinD_ADP_dt[trimesh.adjacent_tri] += delta_MinDE_hydrolysis * to_membrane
+        d_C_MinE_dt[trimesh.adjacent_tri] += delta_MinDE_hydrolysis * to_membrane
 
-            ## MinE binding to the membrane mediated by membrane bound MinD
-            delta = k_E2D * M_MinD[i] * C_MinE[trimesh.adjacent_tri[i]]
-            d_M_MinDE_dt[i] += delta
-            d_M_MinD_dt[i] -= delta
-            d_C_MinE_dt[trimesh.adjacent_tri[i]] -= delta * to_membrane[i]
-
-            ## MinDE ATP hydrolysis
-            delta = k_hydrolysis * M_MinDE[i]
-            d_M_MinDE_dt[i] -= delta
-            d_C_MinD_ADP_dt[trimesh.adjacent_tri[i]] += delta * to_membrane[i]
-            d_C_MinE_dt[trimesh.adjacent_tri[i]] += delta * to_membrane[i]
-        
         # Calculate the reaction terms that happen in the cytosol
-        for i in range(num_mesh):
-
-            ## MinD ATP phosphorylation
-            delta = k_phosphorylation * C_MinD_ADP[i]
-            d_C_MinD_ATP_dt[i] += delta
-            d_C_MinD_ADP_dt[i] -= delta
+        ## MinD ATP phosphorylation
+        delta_C_MinD_ADP_to_ATP = k_phosphorylation * C_MinD_ADP
+        d_C_MinD_ADP_dt -= delta_C_MinD_ADP_to_ATP
+        d_C_MinD_ATP_dt += delta_C_MinD_ADP_to_ATP
         
         # Assemble the rate of change for each component
         dydt = np.concatenate([
@@ -112,22 +93,23 @@ def MinDE_system(trimesh: Container.TriMesh, t_span, y0):
             last_time[0] = t
         return dydt
     
+    # Use scipy's solve_ivp to solve the ODE system
     saveat = np.arange(t_span[0], t_span[1], 0.04)
-    sol = solve_ivp(    MinDE_reactions,
-        t_span,
-        y0,
-        method='Radau',
-        rtol=1e-8,
-        atol=1e-8,
+    sol = solve_ivp(
+        MinDE_reactions,
+        t_span=t_span,
+        y0=y0,
+        method='BDF',
+        rtol=1e-3,
+        atol=0,
         t_eval=saveat
     )
     pbar.close()
-
     return sol
 
 if __name__ == "__main__":
     # Example usage
-    container = Container('shape.txt', resolution=200)
+    container = Container('shape.txt', resolution=100)
     container.establish(animation_dir=None)
 
     np.random.seed(42)  # For reproducibility

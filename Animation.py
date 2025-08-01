@@ -76,7 +76,7 @@ if __name__ == "__main__":
 
     import numpy as np
 
-    container = Container('shape.txt', resolution=200)
+    container = Container('shape.txt', resolution=100)
     container.establish(animation_dir=None)
 
     t_span = (0, 100)  # Time span for the simulation
@@ -130,17 +130,17 @@ if __name__ == "__main__":
     # Calculate the total amount of each component at each time step
     for i in range(len(sol["t"])):
         E_tot.append(
-            np.sum(C_MinE[:, i] * tri_volumes) + np.sum(M_MinDE[:, i] * border_areas)
+            np.sum(C_MinE[:, i] * np.array(tri_volumes)) + np.sum(M_MinDE[:, i] * np.array(border_areas))
         )
         D_tot.append(
-            np.sum(C_MinD_ADP[:, i] * tri_volumes) + np.sum(C_MinD_ATP[:, i] * tri_volumes) +
-            np.sum(M_MinD[:, i] * border_areas) + np.sum(M_MinDE[:, i] * border_areas)
+            np.sum(C_MinD_ADP[:, i] * np.array(tri_volumes)) + np.sum(C_MinD_ATP[:, i] * np.array(tri_volumes)) +
+            np.sum(M_MinD[:, i] * np.array(border_areas)) + np.sum(M_MinDE[:, i] * np.array(border_areas))
         )
-        C_MinD_ATP_tot.append(np.sum(C_MinD_ATP[:, i] * tri_volumes))
-        C_MinD_ADP_tot.append(np.sum(C_MinD_ADP[:, i] * tri_volumes))
-        C_MinE_tot.append(np.sum(C_MinE[:, i] * tri_volumes))
-        M_MinD_tot.append(np.sum(M_MinD[:, i] * border_areas))
-        M_MinDE_tot.append(np.sum(M_MinDE[:, i] * border_areas))
+        C_MinD_ATP_tot.append(np.sum(C_MinD_ATP[:, i] * np.array(tri_volumes)))
+        C_MinD_ADP_tot.append(np.sum(C_MinD_ADP[:, i] * np.array(tri_volumes)))
+        C_MinE_tot.append(np.sum(C_MinE[:, i] * np.array(tri_volumes)))
+        M_MinD_tot.append(np.sum(M_MinD[:, i] * np.array(border_areas)))
+        M_MinDE_tot.append(np.sum(M_MinDE[:, i] * np.array(border_areas)))
 
     # Plot the total amount of each component over time
     import matplotlib.pyplot as plt
